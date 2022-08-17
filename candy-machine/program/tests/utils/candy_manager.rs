@@ -2,6 +2,7 @@ use std::{fmt::Debug, str::FromStr};
 
 use anchor_lang::AccountDeserialize;
 use mpl_token_metadata::pda::find_collection_authority_account;
+use mpl_token_metadata::state::Metadata;
 use solana_gateway::state::{get_expire_address_with_seed, get_gateway_token_address_with_seed};
 use solana_program::program_option::COption;
 use solana_program::pubkey::Pubkey;
@@ -77,6 +78,7 @@ pub struct CollectionInfo {
     pub master_edition: Pubkey,
     pub token_account: Pubkey,
     pub authority_record: Pubkey,
+    pub sized: bool,
 }
 
 impl Clone for CollectionInfo {
@@ -89,6 +91,7 @@ impl Clone for CollectionInfo {
             master_edition: self.master_edition,
             token_account: self.token_account,
             authority_record: self.authority_record,
+            sized: self.sized,
         }
     }
 }
@@ -103,6 +106,7 @@ impl CollectionInfo {
         master_edition: Pubkey,
         token_account: Pubkey,
         authority_record: Pubkey,
+        sized: bool,
     ) -> Self {
         CollectionInfo {
             set,
@@ -112,6 +116,7 @@ impl CollectionInfo {
             master_edition,
             token_account,
             authority_record,
+            sized,
         }
     }
 
@@ -120,11 +125,12 @@ impl CollectionInfo {
         set: bool,
         candy_machine: &Pubkey,
         authority: Keypair,
+        sized: bool,
     ) -> Self {
         println!("Init Collection Info");
         let metadata_info = MetadataManager::new(&authority);
         metadata_info
-            .create_v2(
+            .create_v3(
                 context,
                 "Collection Name".to_string(),
                 "COLLECTION".to_string(),
@@ -135,6 +141,7 @@ impl CollectionInfo {
                 None,
                 None,
                 None,
+                sized,
             )
             .await
             .unwrap();
@@ -156,7 +163,12 @@ impl CollectionInfo {
             master_edition: master_edition_info.edition_pubkey,
             token_account: metadata_info.get_ata(),
             authority_record: collection_authority_record,
+            sized,
         }
+    }
+
+    pub async fn get_metadata(&self, context: &mut ProgramTestContext) -> Metadata {
+        MetadataManager::get_data_from_account(context, &self.metadata).await
     }
 }
 
@@ -502,7 +514,7 @@ impl CandyManager {
 
     pub async fn init(
         context: &mut ProgramTestContext,
-        collection: bool,
+        collection: Option<bool>,
         token: bool,
         freeze: Option<FreezeConfig>,
         whitelist: Option<WhitelistConfig>,
@@ -517,11 +529,18 @@ impl CandyManager {
             .await
             .unwrap();
 
+        let sized = if let Some(sized) = &collection {
+            *sized
+        } else {
+            false
+        };
+
         let collection_info = CollectionInfo::init(
             context,
-            collection,
+            collection.is_some(),
             &candy_machine.pubkey(),
             clone_keypair(&authority),
+            sized,
         )
         .await;
 
